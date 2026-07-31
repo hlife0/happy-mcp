@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# Runtime state and secrets must stay outside Git.
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+storage.key
+admin-password.txt
+agent.key

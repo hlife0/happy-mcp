@@ -1,0 +1,46 @@
+{
+  "name": "happy-mcp",
+  "version": "0.2.0",
+  "private": true,
+  "description": "OAuth-protected, independently audited MCP wrapper for the installed happy-agent CLI",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/hlife0/happy-mcp.git"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc --noEmit && pkgroll",
+    "dev": "tsx src/index.ts",
+    "smoke": "node scripts/oauth-smoke.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "better-sqlite3": "^12.9.0",
+    "express": "^5.2.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "4.17.25",
+    "@types/node": ">=20",
+    "pkgroll": "^2.14.2",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "pnpm@10.11.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

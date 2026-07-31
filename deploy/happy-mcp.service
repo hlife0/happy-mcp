@@ -1,0 +1,32 @@
+[Unit]
+Description=OAuth-protected Happy MCP control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/happy-mcp
+ExecStart=/usr/bin/node /opt/happy-mcp/dist/index.mjs
+Environment=NODE_ENV=production
+Environment=HOME=/home/happy
+Environment=HAPPY_MCP_PUBLIC_URL=https://mcp.example.com
+Environment=HAPPY_MCP_HOST=127.0.0.1
+Environment=HAPPY_MCP_PORT=3020
+Environment=HAPPY_MCP_ADMIN_HOST=127.0.0.1
+Environment=HAPPY_MCP_ADMIN_PORT=3021
+Environment=HAPPY_MCP_DATA_DIR=/var/lib/happy-mcp
+Environment=HAPPY_AGENT_BIN=/usr/local/bin/happy-agent
+UMask=0077
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/happy-mcp
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target
