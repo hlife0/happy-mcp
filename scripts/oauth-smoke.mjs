@@ -89,6 +89,15 @@ const initialize = await mcpRequest(tokens.access_token, null, {
 });
 const sessionId = requiredHeader(initialize.response, 'mcp-session-id');
 if (initialize.body.result?.serverInfo?.name !== 'happy-agent-bridge') throw new Error('Unexpected MCP server identity');
+const instructions = initialize.body.result?.instructions || '';
+for (const required of [
+  'Never send more than one instruction to the same session at a time',
+  'poll happy_session_history every few seconds',
+  'call happy_stop_session',
+  'latest turn-start must have a matching turn-end',
+]) {
+  if (!instructions.includes(required)) throw new Error(`MCP operating instructions are missing: ${required}`);
+}
 await mcpRequest(tokens.access_token, sessionId, { jsonrpc: '2.0', method: 'notifications/initialized' }, [200, 202, 204]);
 const listed = await mcpRequest(tokens.access_token, sessionId, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
 const toolNames = listed.body.result?.tools?.map((tool) => tool.name) || [];

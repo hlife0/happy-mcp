@@ -202,6 +202,13 @@ async function initializeMcp(
         .send(initializeRequest());
     expect(initialize.status).toBe(200);
     expect(initialize.body.result.serverInfo.name).toBe('happy-agent-bridge');
+    const instructions = String(initialize.body.result.instructions);
+    expect(instructions).toContain('Never send more than one instruction to the same session at a time');
+    expect(instructions).toContain('poll happy_session_history every few seconds');
+    expect(instructions).toContain('call happy_stop_session');
+    expect(instructions).toContain('latest turn-start must have a matching turn-end');
+    expect(instructions).toContain('/goal <objective>');
+    expect(instructions).toContain('idle or completed turn does not prove that the Goal itself is complete');
     const sessionId = initialize.headers['mcp-session-id'] as string;
     await request(app)
         .post('/mcp')

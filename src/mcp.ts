@@ -5,6 +5,15 @@ import type { RiskAuditor } from './audit';
 import type { HappyAgentController } from './happy-agent-cli';
 import type { MachinePolicy } from './storage';
 
+export const HAPPY_MCP_INSTRUCTIONS = [
+    'Control administrator-approved Happy sessions only through the installed happy-agent CLI. Mutating operations are independently audited.',
+    'SESSION COMMAND SAFETY: Never send more than one instruction to the same session at a time. Before sending another instruction, first establish that the previous turn is no longer running. Poll happy_wait_session, then confirm with happy_session_history and happy_session_status. When history contains turn events, the latest turn-start must have a matching turn-end. If the state is missing, stale, or ambiguous, wait and query again instead of sending.',
+    'AFTER SEND: For long-running work, prefer happy_send_message with wait_seconds=0 so control returns immediately. Then poll happy_session_history every few seconds for incremental agent replies, reasoning, tool calls, and turn events. Track message id, seq, or createdAt to avoid treating repeated history entries as new. Use happy_session_status to inspect session connectivity and pending requests; active=true means the session is connected, not that a turn is necessarily running.',
+    'A messageDispatched=true response means the instruction was sent. completionStatus=timed_out means only that waiting expired; it does not mean dispatch failed. Never resend after a timeout or uncertain response until status and history prove whether the instruction was accepted and the turn has ended.',
+    'INTERRUPTION: There is no turn-only abort tool. To interrupt work, call happy_stop_session, which stops the entire session and therefore its current turn. The response is only a native happy-agent acknowledgement. Poll happy_session_status or happy_list_sessions until the session is inactive before treating it as stopped or attempting resume.',
+    'GOAL MODE: On compatible Codex or Claude sessions, an exact /goal <objective> message sets or edits the native Goal and /goal clear clears it. Send Goal commands only when no turn is running. A persistent Goal can span multiple turns, so an idle or completed turn does not prove that the Goal itself is complete; this MCP does not expose structured Goal status.',
+].join('\n');
+
 export function createHappyMcpServer(deps: {
     authInfo: AuthInfo;
     happy: HappyAgentController;
@@ -12,11 +21,7 @@ export function createHappyMcpServer(deps: {
 }): McpServer {
     const { authInfo, happy, auditor } = deps;
     const server = new McpServer({ name: 'happy-agent-bridge', version: '0.2.0' }, {
-        instructions: [
-            'Control administrator-approved Happy sessions only through the installed happy-agent CLI.',
-            'Mutating operations are independently audited.',
-            'A send timeout never implies that the message was not dispatched; query status or history before retrying.',
-        ].join(' '),
+        instructions: HAPPY_MCP_INSTRUCTIONS,
     });
 
     server.registerTool('happy_list_machines', {
@@ -41,7 +46,7 @@ export function createHappyMcpServer(deps: {
 
     server.registerTool('happy_session_status', {
         title: 'Get Happy session status',
-        description: 'Run happy-agent status --json for an allowed session.',
+        description: 'Run happy-agent status --json for an allowed session. Use it with history after sending; active means connected and status alone does not prove that a turn ended.',
         inputSchema: { session: z.string().min(1).describe('Session ID or unambiguous prefix') },
         annotations: { readOnlyHint: true, openWorldHint: false },
     }, async ({ session }) => {
@@ -51,7 +56,7 @@ export function createHappyMcpServer(deps: {
 
     server.registerTool('happy_session_history', {
         title: 'Read Happy session history',
-        description: 'Run happy-agent history --json for an allowed session.',
+        description: 'Poll native happy-agent history --json for incremental replies, reasoning, tool calls, and turn events. Compare message id/seq/createdAt and match turn-start with turn-end before sending another instruction.',
         inputSchema: {
             session: z.string().min(1),
             limit: z.number().int().min(1).max(150).optional().default(50),
@@ -99,7 +104,7 @@ export function createHappyMcpServer(deps: {
 
     server.registerTool('happy_send_message', {
         title: 'Send through happy-agent',
-        description: 'After independent review, run happy-agent send --json. Optional waiting uses the separate native happy-agent wait command.',
+        description: 'Send one audited instruction through native happy-agent. Never call while an earlier turn in this session is running or uncertain. For long work prefer wait_seconds=0, then poll history/status/wait. A timed_out result does not mean the message was not sent.',
         inputSchema: {
             session: z.string().min(1),
             message: z.string().min(1).max(100_000),
@@ -131,7 +136,7 @@ export function createHappyMcpServer(deps: {
 
     server.registerTool('happy_wait_session', {
         title: 'Wait through happy-agent',
-        description: 'Run the native happy-agent wait command for an allowed session. This does not interrupt or modify the remote turn.',
+        description: 'Wait for native happy-agent to report the session idle. This does not interrupt the turn. After completion, confirm the matching turn-end in history before sending again; idle does not prove a persistent Goal completed.',
         inputSchema: {
             session: z.string().min(1),
             timeout_seconds: z.number().int().min(1).max(55).optional().default(30),
@@ -162,7 +167,7 @@ export function createHappyMcpServer(deps: {
 
     server.registerTool('happy_stop_session', {
         title: 'Stop through happy-agent',
-        description: 'After independent review, run the native happy-agent stop command. The result is an acknowledgement, not independent PID verification.',
+        description: 'The available interruption mechanism: stop the entire session and its current turn through native happy-agent. There is no turn-only abort. The result is only an acknowledgement; poll status/list until inactive.',
         inputSchema: { session: z.string().min(1) },
         annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     }, async ({ session }) => {
