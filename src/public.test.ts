@@ -127,6 +127,51 @@ describe('public MCP HTTP app', () => {
         storage.close();
     });
 
+    it('keeps an MCP transport session across token refresh but rejects a different grant', async () => {
+        const { app, storage, oauth } = setup();
+        const { refreshToken, client, sessionId } = await initializeMcp(app, storage, oauth);
+        const rotated = await oauth.exchangeRefreshToken(client, refreshToken);
+
+        const sameGrant = await request(app)
+            .post('/mcp')
+            .set('authorization', `Bearer ${rotated.access_token}`)
+            .set('mcp-session-id', sessionId)
+            .set('accept', 'application/json, text/event-stream')
+            .send({ jsonrpc: '2.0', id: 20, method: 'ping' });
+        expect(sameGrant.status).toBe(200);
+
+        if (!rotated.refresh_token) throw new Error('OAuth provider did not rotate the refresh token');
+        const downscoped = await oauth.exchangeRefreshToken(client, rotated.refresh_token, ['happy:read']);
+        const changedScope = await request(app)
+            .post('/mcp')
+            .set('authorization', `Bearer ${downscoped.access_token}`)
+            .set('mcp-session-id', sessionId)
+            .set('accept', 'application/json, text/event-stream')
+            .send({ jsonrpc: '2.0', id: 21, method: 'ping' });
+        expect(changedScope.status).toBe(403);
+        expect(changedScope.body.error.message).toContain('different OAuth authorization context');
+
+        storage.saveAuthorizationCode('different-grant-code', {
+            clientId: client.client_id,
+            grantId: 'different-grant',
+            redirectUri: client.redirect_uris[0]!,
+            codeChallenge: 'unused-in-direct-provider-test',
+            scopes: ['happy:read', 'happy:control'],
+            resource: 'https://happy.example.com/mcp',
+            expiresAt: Date.now() + 60_000,
+        });
+        const differentGrant = await oauth.exchangeAuthorizationCode(client, 'different-grant-code');
+        const rejected = await request(app)
+            .post('/mcp')
+            .set('authorization', `Bearer ${differentGrant.access_token}`)
+            .set('mcp-session-id', sessionId)
+            .set('accept', 'application/json, text/event-stream')
+            .send({ jsonrpc: '2.0', id: 22, method: 'ping' });
+        expect(rejected.status).toBe(403);
+        expect(rejected.body.error.message).toContain('different OAuth authorization context');
+        storage.close();
+    });
+
     it('fails closed before invoking happy-agent when the independent reviewer denies send', async () => {
         const { app, storage, oauth, happy, auditor } = setup();
         storage.saveMachinePolicy({
@@ -193,8 +238,13 @@ async function initializeMcp(
     app: ReturnType<typeof setup>['app'],
     storage: Storage,
     oauth: HappyOAuthProvider,
-): Promise<{ token: string; sessionId: string }> {
-    const token = await issueAccessToken(storage, oauth);
+): Promise<{
+    token: string;
+    refreshToken: string;
+    client: OAuthClientInformationFull;
+    sessionId: string;
+}> {
+    const { client, accessToken: token, refreshToken } = await issueAccessToken(storage, oauth);
     const initialize = await request(app)
         .post('/mcp')
         .set('authorization', `Bearer ${token}`)
@@ -216,7 +266,7 @@ async function initializeMcp(
         .set('mcp-session-id', sessionId)
         .set('accept', 'application/json, text/event-stream')
         .send({ jsonrpc: '2.0', method: 'notifications/initialized' });
-    return { token, sessionId };
+    return { token, refreshToken, client, sessionId };
 }
 
 function initializeRequest() {
@@ -232,7 +282,11 @@ function initializeRequest() {
     };
 }
 
-async function issueAccessToken(storage: Storage, oauth: HappyOAuthProvider): Promise<string> {
+async function issueAccessToken(storage: Storage, oauth: HappyOAuthProvider): Promise<{
+    client: OAuthClientInformationFull;
+    accessToken: string;
+    refreshToken: string;
+}> {
     const client: OAuthClientInformationFull = {
         client_id: 'integration-client',
         client_id_issued_at: Math.floor(Date.now() / 1000),
@@ -245,11 +299,14 @@ async function issueAccessToken(storage: Storage, oauth: HappyOAuthProvider): Pr
     storage.saveOAuthClient(client);
     storage.saveAuthorizationCode('integration-code', {
         clientId: client.client_id,
+        grantId: 'integration-grant',
         redirectUri: client.redirect_uris[0]!,
         codeChallenge: 'unused-in-direct-provider-test',
         scopes: ['happy:read', 'happy:control'],
         resource: 'https://happy.example.com/mcp',
         expiresAt: Date.now() + 60_000,
     });
-    return (await oauth.exchangeAuthorizationCode(client, 'integration-code')).access_token;
+    const tokens = await oauth.exchangeAuthorizationCode(client, 'integration-code');
+    if (!tokens.refresh_token) throw new Error('OAuth provider did not issue a refresh token');
+    return { client, accessToken: tokens.access_token, refreshToken: tokens.refresh_token };
 }

@@ -35,6 +35,7 @@ describe('HappyOAuthProvider', () => {
         const { storage, provider, client } = setup();
         storage.saveAuthorizationCode('code-1', {
             clientId: client.client_id,
+            grantId: 'grant-1',
             redirectUri: client.redirect_uris[0]!,
             codeChallenge: 'challenge',
             scopes: ['happy:read', 'happy:control'],
@@ -53,6 +54,7 @@ describe('HappyOAuthProvider', () => {
         const info = await provider.verifyAccessToken(tokens.access_token);
         expect(info.clientId).toBe(client.client_id);
         expect(info.scopes).toEqual(['happy:read', 'happy:control']);
+        expect(info.extra?.grantId).toBe('grant-1');
         await expect(provider.exchangeAuthorizationCode(client, 'code-1')).rejects.toThrow('Invalid or expired');
         storage.close();
     });
@@ -61,6 +63,7 @@ describe('HappyOAuthProvider', () => {
         const { storage, provider, client } = setup();
         storage.saveAuthorizationCode('code-2', {
             clientId: client.client_id,
+            grantId: 'grant-2',
             redirectUri: client.redirect_uris[0]!,
             codeChallenge: 'challenge',
             scopes: ['happy:read'],
@@ -68,11 +71,14 @@ describe('HappyOAuthProvider', () => {
             expiresAt: Date.now() + 60_000,
         });
         const tokens = await provider.exchangeAuthorizationCode(client, 'code-2');
+        const originalInfo = await provider.verifyAccessToken(tokens.access_token);
         await expect(provider.exchangeRefreshToken(client, tokens.refresh_token!, ['happy:control']))
             .rejects.toThrow('exceeds');
 
         const rotated = await provider.exchangeRefreshToken(client, tokens.refresh_token!, ['happy:read']);
         expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
+        const rotatedInfo = await provider.verifyAccessToken(rotated.access_token);
+        expect(rotatedInfo.extra?.grantId).toBe(originalInfo.extra?.grantId);
         await expect(provider.exchangeRefreshToken(client, tokens.refresh_token!)).rejects.toThrow('Invalid or expired');
         storage.close();
     });
@@ -81,6 +87,7 @@ describe('HappyOAuthProvider', () => {
         const { storage, provider, client } = setup();
         storage.saveAuthorizationCode('code-3', {
             clientId: client.client_id,
+            grantId: 'grant-3',
             redirectUri: client.redirect_uris[0]!,
             codeChallenge: 'challenge',
             scopes: ['happy:read'],

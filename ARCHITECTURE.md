@@ -47,7 +47,7 @@ MCP 不知道：
 | `src/audit.ts` | 两阶段独立 LLM 审查、结构化输出、失败关闭和日志 |
 | `src/storage.ts` | OAuth、管理员、机器策略、审核配置和审核日志 |
 | `src/admin.ts` | 仅本机可访问的管理面板 |
-| `src/public.ts` | 公网 OAuth/MCP 路由、token-bound transport session 和限流 |
+| `src/public.ts` | 公网 OAuth/MCP 路由、grant-bound transport session 和限流 |
 | `src/policy.ts` | 批准目录规范化与包含关系检查 |
 
 仓库中不存在 Happy 协议适配器或持久 Goal task runner。
@@ -72,7 +72,7 @@ OAuth 支持：
 - refresh token 30 天；
 - 客户端和 token 撤销。
 
-公网 MCP transport session 在当前进程内存中保存，绑定 OAuth client 和 access token，空闲 6 小时清理。
+公网 MCP transport session 在当前进程内存中保存，绑定 OAuth client 和稳定的 authorization grant，空闲 6 小时清理。access token 刷新会继承 grant，因此可以继续使用同一 MCP session；同一 client 的另一次管理员授权会产生不同 grant，不能复用旧 session。
 
 ## 4. 独立 LLM 审查
 

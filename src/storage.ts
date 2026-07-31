@@ -25,6 +25,7 @@ export type AuditSettings = {
 
 export type StoredAuthorizationCode = {
     clientId: string;
+    grantId: string;
     redirectUri: string;
     codeChallenge: string;
     scopes: string[];
@@ -36,6 +37,7 @@ export type StoredToken = {
     tokenHash: string;
     type: 'access' | 'refresh';
     clientId: string;
+    grantId: string;
     subject: string;
     scopes: string[];
     resource: string;
@@ -124,6 +126,7 @@ export class Storage {
                 token_hash TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
                 client_id TEXT NOT NULL,
+                grant_id TEXT NOT NULL,
                 subject TEXT NOT NULL,
                 scopes_json TEXT NOT NULL,
                 resource TEXT NOT NULL,
@@ -157,6 +160,17 @@ export class Storage {
 
             DROP TABLE IF EXISTS tasks;
         `);
+
+        const tokenColumns = this.db.pragma('table_info(oauth_tokens)') as Array<{ name: string }>;
+        if (!tokenColumns.some((column) => column.name === 'grant_id')) {
+            this.db.exec('ALTER TABLE oauth_tokens ADD COLUMN grant_id TEXT');
+        }
+        this.db.prepare(`
+            UPDATE oauth_tokens
+            SET grant_id = 'legacy:' || client_id
+            WHERE grant_id IS NULL OR grant_id = ''
+        `).run();
+        this.db.exec('CREATE INDEX IF NOT EXISTS oauth_tokens_grant_idx ON oauth_tokens(client_id, grant_id)');
     }
 
     getSetting(key: string): string | null {
@@ -364,9 +378,9 @@ export class Storage {
 
     saveToken(rawToken: string, token: Omit<StoredToken, 'tokenHash' | 'revokedAt'>): void {
         this.db.prepare(`
-            INSERT INTO oauth_tokens(token_hash, type, client_id, subject, scopes_json, resource, created_at, expires_at, revoked_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL)
-        `).run(tokenHash(rawToken), token.type, token.clientId, token.subject, JSON.stringify(token.scopes), token.resource, Date.now(), token.expiresAt);
+            INSERT INTO oauth_tokens(token_hash, type, client_id, grant_id, subject, scopes_json, resource, created_at, expires_at, revoked_at)
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        `).run(tokenHash(rawToken), token.type, token.clientId, token.grantId, token.subject, JSON.stringify(token.scopes), token.resource, Date.now(), token.expiresAt);
     }
 
     getToken(rawToken: string): StoredToken | null {
@@ -376,6 +390,9 @@ export class Storage {
             tokenHash: String(row.token_hash),
             type: row.type === 'refresh' ? 'refresh' : 'access',
             clientId: String(row.client_id),
+            grantId: typeof row.grant_id === 'string' && row.grant_id
+                ? row.grant_id
+                : `legacy:${String(row.client_id)}`,
             subject: String(row.subject),
             scopes: parseStringArray(row.scopes_json),
             resource: String(row.resource),

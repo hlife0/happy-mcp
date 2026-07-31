@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,6 +75,7 @@ describe('Storage', () => {
         const storage = createStorage();
         storage.saveAuthorizationCode('code-1', {
             clientId: 'client-1',
+            grantId: 'grant-1',
             redirectUri: 'http://127.0.0.1/callback',
             codeChallenge: 'challenge',
             scopes: ['happy:read'],
@@ -82,6 +84,36 @@ describe('Storage', () => {
         });
         expect(storage.consumeAuthorizationCode('code-1')?.clientId).toBe('client-1');
         expect(storage.consumeAuthorizationCode('code-1')).toBeNull();
+        storage.close();
+    });
+
+    it('migrates legacy OAuth tokens to a stable compatibility grant', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'happy-mcp-storage-'));
+        dirs.push(dir);
+        const databasePath = join(dir, 'happy-mcp.sqlite');
+        const legacy = new Database(databasePath);
+        legacy.exec(`
+            CREATE TABLE oauth_tokens (
+                token_hash TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                scopes_json TEXT NOT NULL,
+                resource TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                revoked_at INTEGER
+            );
+        `);
+        legacy.prepare(`
+            INSERT INTO oauth_tokens(token_hash, type, client_id, subject, scopes_json, resource, created_at, expires_at, revoked_at)
+            VALUES('hash', 'access', 'legacy-client', 'happy-admin', '[]', 'https://example.com/mcp', 1, 2, NULL)
+        `).run();
+        legacy.close();
+
+        const storage = new Storage(dir);
+        const row = storage.db.prepare("SELECT grant_id FROM oauth_tokens WHERE token_hash = 'hash'").get() as { grant_id: string };
+        expect(row.grant_id).toBe('legacy:legacy-client');
         storage.close();
     });
 });

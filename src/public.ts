@@ -29,7 +29,10 @@ type McpSession = {
     transport: StreamableHTTPServerTransport;
     server: McpServer;
     clientId: string;
-    accessTokenHash: string;
+    grantId: string;
+    scopeKey: string;
+    resource: string;
+    subject: string;
     lastAccessAt: number;
 };
 
@@ -169,7 +172,7 @@ async function handleMcpRequest(
             return;
         }
         if (!sameAuthorization(entry, auth)) {
-            sendMcpError(res, 403, 'This MCP session belongs to a different OAuth grant.');
+            sendMcpError(res, 403, 'This MCP session belongs to a different OAuth authorization context.');
             return;
         }
         entry.lastAccessAt = Date.now();
@@ -202,7 +205,10 @@ async function handleMcpRequest(
         transport,
         server: mcpServer,
         clientId: auth.clientId,
-        accessTokenHash: hashAccessToken(auth.token),
+        grantId: authorizationGrantId(auth),
+        scopeKey: authorizationScopeKey(auth),
+        resource: authorizationResource(auth),
+        subject: authorizationSubject(auth),
         lastAccessAt: Date.now(),
     };
     transport.onclose = () => {
@@ -215,7 +221,29 @@ async function handleMcpRequest(
 }
 
 function sameAuthorization(entry: McpSession, auth: AuthInfo): boolean {
-    return entry.clientId === auth.clientId && entry.accessTokenHash === hashAccessToken(auth.token);
+    return entry.clientId === auth.clientId
+        && entry.grantId === authorizationGrantId(auth)
+        && entry.scopeKey === authorizationScopeKey(auth)
+        && entry.resource === authorizationResource(auth)
+        && entry.subject === authorizationSubject(auth);
+}
+
+function authorizationGrantId(auth: AuthInfo): string {
+    const value = auth.extra?.grantId;
+    return typeof value === 'string' && value ? value : `legacy:${auth.clientId}`;
+}
+
+function authorizationScopeKey(auth: AuthInfo): string {
+    return [...new Set(auth.scopes)].sort().join(' ');
+}
+
+function authorizationSubject(auth: AuthInfo): string {
+    const value = auth.extra?.subject;
+    return typeof value === 'string' ? value : '';
+}
+
+function authorizationResource(auth: AuthInfo): string {
+    return auth.resource?.href ?? '';
 }
 
 function hashAccessToken(token: string): string {

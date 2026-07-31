@@ -70,6 +70,7 @@ export class HappyOAuthProvider implements OAuthServerProvider {
         const code = randomToken();
         this.storage.saveAuthorizationCode(code, {
             clientId: client.client_id,
+            grantId: randomToken(24),
             redirectUri: params.redirectUri,
             codeChallenge: params.codeChallenge,
             scopes,
@@ -99,7 +100,7 @@ export class HappyOAuthProvider implements OAuthServerProvider {
         if (!code || code.clientId !== client.client_id) throw new InvalidGrantError('Invalid or expired authorization code');
         if (redirectUri !== undefined && redirectUri !== code.redirectUri) throw new InvalidGrantError('redirect_uri does not match authorization request');
         if (resource !== undefined && normalizeUrl(resource) !== code.resource) throw new InvalidTargetError('resource does not match authorization request');
-        return this.issueTokenPair(client.client_id, code.scopes, code.resource);
+        return this.issueTokenPair(client.client_id, code.scopes, code.resource, code.grantId || randomToken(24));
     }
 
     async exchangeRefreshToken(
@@ -120,7 +121,7 @@ export class HappyOAuthProvider implements OAuthServerProvider {
             throw new InvalidTargetError('resource does not match the original grant');
         }
         this.storage.revokeToken(refreshToken);
-        return this.issueTokenPair(client.client_id, requestedScopes, stored.resource);
+        return this.issueTokenPair(client.client_id, requestedScopes, stored.resource, stored.grantId);
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -135,7 +136,7 @@ export class HappyOAuthProvider implements OAuthServerProvider {
             scopes: stored.scopes,
             expiresAt: Math.floor(stored.expiresAt / 1000),
             resource: new URL(stored.resource),
-            extra: { subject: stored.subject },
+            extra: { subject: stored.subject, grantId: stored.grantId },
         };
     }
 
@@ -166,13 +167,14 @@ export class HappyOAuthProvider implements OAuthServerProvider {
         }
     }
 
-    private issueTokenPair(clientId: string, scopes: string[], resource: string): OAuthTokens {
+    private issueTokenPair(clientId: string, scopes: string[], resource: string, grantId: string): OAuthTokens {
         const accessToken = randomToken();
         const refreshToken = randomToken();
         const now = Date.now();
         this.storage.saveToken(accessToken, {
             type: 'access',
             clientId,
+            grantId,
             subject: 'happy-admin',
             scopes,
             resource,
@@ -181,6 +183,7 @@ export class HappyOAuthProvider implements OAuthServerProvider {
         this.storage.saveToken(refreshToken, {
             type: 'refresh',
             clientId,
+            grantId,
             subject: 'happy-admin',
             scopes,
             resource,

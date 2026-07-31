@@ -116,6 +116,23 @@ if (JSON.stringify([...toolNames].sort()) !== JSON.stringify(expectedTools)) {
   throw new Error(`Unexpected Happy MCP tool surface: ${toolNames.join(', ')}`);
 }
 
+if (!tokens.refresh_token) throw new Error('OAuth token response did not include a refresh token');
+const rotatedTokens = await jsonRequest(`${publicUrl}/token`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: registration.client_id,
+    refresh_token: tokens.refresh_token,
+    resource,
+  }),
+}, 200);
+await mcpRequest(rotatedTokens.access_token, sessionId, {
+  jsonrpc: '2.0',
+  id: 3,
+  method: 'ping',
+});
+
 const login = await fetchChecked(`${adminUrl}/login`, {
   method: 'POST',
   redirect: 'manual',
@@ -136,8 +153,8 @@ await fetchChecked(`${adminUrl}/clients/${encodeURIComponent(registration.client
 
 const revoked = await fetch(resource, {
   method: 'POST',
-  headers: mcpHeaders(tokens.access_token),
-  body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'ping' }),
+  headers: mcpHeaders(rotatedTokens.access_token),
+  body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'ping' }),
   signal: AbortSignal.timeout(20_000),
 });
 if (revoked.status !== 401) throw new Error(`Revoked access token returned HTTP ${revoked.status}`);
@@ -147,6 +164,7 @@ console.log(JSON.stringify({
   oauthClient: registration.client_id,
   mcpSession: sessionId,
   toolCount: toolNames.length,
+  refreshedSessionStatus: 200,
   revokedTokenStatus: revoked.status,
 }));
 
